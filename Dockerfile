@@ -1,24 +1,56 @@
-FROM sonarqube:7.1
+FROM openjdk:8
 
-ENV SONARQUBE_PLUGINS_DIR=/opt/sonarqube/default/extensions/plugins \
-    SONARQUBE_SERVER_BASE="http://localhost:9000" \
-    SONARQUBE_WEB_CONTEXT="/sonar" \
-    SONARQUBE_FORCE_AUTHENTICATION=true \
-    SONARQUBE_JMX_ENABLED=false \
-    DOCKERIZE_VERSION=v0.5.0
+ENV SONAR_VERSION=7.1 \
+    SONARQUBE_HOME=/opt/sonarqube \
+    #ADDITION#
+    SONARQUBE_PLUGINS_DIR=/opt/sonarqube/extensions/plugins \
+    # Database configuration
+    # Defaults to using H2
+    SONARQUBE_JDBC_USERNAME=sonar \
+    SONARQUBE_JDBC_PASSWORD=sonar \
+    SONARQUBE_JDBC_URL=
 
-RUN wget https://github.com/jwilder/dockerize/releases/download/$DOCKERIZE_VERSION/dockerize-alpine-linux-amd64-$DOCKERIZE_VERSION.tar.gz \
-    && tar -C /usr/local/bin -xzvf dockerize-alpine-linux-amd64-$DOCKERIZE_VERSION.tar.gz \
-    && rm dockerize-alpine-linux-amd64-$DOCKERIZE_VERSION.tar.gz
+# Http port
+EXPOSE 9000
 
-COPY resources/plugins.txt ${SONARQUBE_PLUGINS_DIR}/
-COPY resources/sonar.sh resources/plugins.sh /usr/local/bin/
-COPY resources/sonar.properties.tmpl /tmp/
+RUN groupadd -r sonarqube && useradd -r -g sonarqube sonarqube
+
+# grab gosu for easy step-down from root
+RUN set -x \
+    && wget -O /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/1.10/gosu-$(dpkg --print-architecture)" \
+    && wget -O /usr/local/bin/gosu.asc "https://github.com/tianon/gosu/releases/download/1.10/gosu-$(dpkg --print-architecture).asc" \
+    && export GNUPGHOME="$(mktemp -d)" \
+    && (gpg --keyserver ha.pool.sks-keyservers.net --recv-keys B42F6819007F00F88E364FD4036A9C25BF357DD4 \
+        || gpg --keyserver ipv4.pool.sks-keyservers.net --recv-keys B42F6819007F00F88E364FD4036A9C25BF357DD4) \
+    && gpg --batch --verify /usr/local/bin/gosu.asc /usr/local/bin/gosu \
+    && rm -rf "$GNUPGHOME" /usr/local/bin/gosu.asc \
+    && chmod +x /usr/local/bin/gosu \
+    && gosu nobody true
+
+RUN set -x \
+
+    # pub   2048R/D26468DE 2015-05-25
+    #       Key fingerprint = F118 2E81 C792 9289 21DB  CAB4 CFCA 4A29 D264 68DE
+    # uid                  sonarsource_deployer (Sonarsource Deployer) <infra@sonarsource.com>
+    # sub   2048R/06855C1D 2015-05-25
+    && (gpg --keyserver ha.pool.sks-keyservers.net --recv-keys F1182E81C792928921DBCAB4CFCA4A29D26468DE \
+	    || gpg --keyserver ipv4.pool.sks-keyservers.net --recv-keys F1182E81C792928921DBCAB4CFCA4A29D26468DE) \
+
+    && cd /opt \
+    && curl -o sonarqube.zip -fSL https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-$SONAR_VERSION.zip \
+    && curl -o sonarqube.zip.asc -fSL https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-$SONAR_VERSION.zip.asc \
+    && gpg --batch --verify sonarqube.zip.asc sonarqube.zip \
+    && unzip sonarqube.zip \
+    && mv sonarqube-$SONAR_VERSION sonarqube \
+    && chown -R sonarqube:sonarqube sonarqube \
+    && rm sonarqube.zip* \
+    && rm -rf $SONARQUBE_HOME/bin/*
+
+#ADDITION#
 COPY resources/executables/* ${SONARQUBE_PLUGINS_DIR}/
 
-RUN chmod +x /usr/local/bin/*
-#RUN /usr/local/bin/plugins.sh ${SONARQUBE_PLUGINS_DIR}/plugins.txt
+VOLUME "$SONARQUBE_HOME/data"
 
-VOLUME ["/opt/sonarqube/logs/"]
-
-ENTRYPOINT ["/usr/local/bin/sonar.sh"]
+WORKDIR $SONARQUBE_HOME
+COPY resources/run.sh $SONARQUBE_HOME/bin/
+ENTRYPOINT ["./bin/run.sh"]
