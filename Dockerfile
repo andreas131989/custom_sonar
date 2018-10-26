@@ -2,7 +2,7 @@ FROM openjdk:8
 
 ENV SONAR_VERSION=7.1 \
     SONARQUBE_HOME=/opt/sonarqube \
-    #ADDITION#
+    #Plugins environment variable setup#
     SONARQUBE_PLUGINS_DIR=/opt/sonarqube/extensions/plugins \
     # Database configuration
     # Defaults to using H2
@@ -46,7 +46,7 @@ RUN set -x \
     && rm sonarqube.zip* \
     && rm -rf $SONARQUBE_HOME/bin/*
 
-#ADDITION#
+#Install plugins#
 COPY resources/executables/* ${SONARQUBE_PLUGINS_DIR}/
 
 VOLUME "$SONARQUBE_HOME/data"
